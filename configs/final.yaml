@@ -1,0 +1,170 @@
+# ===========================================================================
+# configs/final.yaml -- the adopted configuration of the submitted paper
+#
+#   "Beyond the Threshold: An Adaptive Markov Decision Layer for Graded,
+#    Personalized Seizure Alerting"  (Akhras & Nasir, 2026, under review)
+#
+# Every value here was lifted from the development notebook
+# (archive/MDP_seizure_101_11.ipynb). The notebook mutates CONFIG and BASE
+# across cells; THIS file is the single source of truth for the code of
+# record in src/.  See README "Configuration notes" for which setting
+# produced which Table 3 number.
+# ===========================================================================
+
+seed: 42
+
+# ---------------------------------------------------------------------------
+# Observation layer (signal, windowing, clinical timing, LOSO, training)
+# ---------------------------------------------------------------------------
+signal:
+  fs: 256                    # Hz (CHB-MIT)
+  bandpass_low: 0.5          # Hz, FIR zero-phase
+  bandpass_high: 40.0        # Hz
+  notch_freq: 60.0           # Hz (Boston mains)
+  channels:                  # 18 bipolar channels common across CHB-MIT;
+    - FP1-F7                 # a recording is kept if at most 2 are missing
+    - F7-T7
+    - T7-P7
+    - P7-O1
+    - FP1-F3
+    - F3-C3
+    - C3-P3
+    - P3-O1
+    - FP2-F4
+    - F4-C4
+    - C4-P4
+    - P4-O2
+    - FP2-F8
+    - F8-T8
+    - T8-P8
+    - P8-O2
+    - FZ-CZ
+    - CZ-PZ
+
+windowing:
+  window_sec: 5
+  train_overlap: 0.5         # 50 % overlap for training augmentation
+  eval_overlap: 0.0          # 0 % overlap for test / FAR streams
+
+clinical:
+  SOP: 1800                  # seizure occurrence period (s) = 30 min
+  SPH: 300                   # seizure prediction horizon (s) = 5 min
+  interictal_margin: 3600    # windows closer than 1 h to a seizure are excluded
+
+loso:
+  train_ratio: 3.0           # interictal : preictal = 3 : 1 in training (undersampling)
+  interictal_train_ratio: 0.75   # 75 % of interictal recordings -> train, 25 % -> FAR set
+  min_preictal_windows: 60   # seizures with fewer preictal windows (5 min) are excluded
+  max_interictal: null       # null = load ALL interictal recordings
+
+training:
+  epochs: 15
+  batch_size: 32
+  lr: 0.001
+  weight_decay: 0.0001       # CNN-TCN L2
+  dropout: 0.3               # LSTM
+  dropout_cnn: 0.4           # CNN-TCN
+  grad_clip: 1.0
+  patience: 5                # early stopping on validation loss
+  val_split: 0.2             # inner validation split (also used for fusion weights)
+  lstm_downsample: 10        # 1280 -> 128 time steps
+  cnn_downsample: 4          # 1280 -> 320 time steps
+  rf_n_estimators: 100
+  rf_max_depth: 10
+  history_H: 5               # causal moving-average length (windows) after fusion
+
+# ---------------------------------------------------------------------------
+# Decision layer: frozen MDP "BASE_v2" (72 states = Level 4 x Trend 3 x
+# Duration 2 x Mode 3; actions No-Alert / Soft / Hard)
+#
+# The notebook keeps 4-element vectors for the historical 96-state model
+# (Idle, EnhMonitor, SoftRefr, HardRefr / No-Alert, Wait, Soft, Hard). The
+# adopted 72-state model drops EnhMonitor and Wait, i.e. it uses indices
+# [0, 2, 3] of those vectors. The 3-element vectors below are exactly that
+# reduction of BASE_adopted (= BASE_v2, w_fa[Hard] 5 -> 2).
+# ---------------------------------------------------------------------------
+mdp:
+  w_md: [4.0, 2.0, 1.0]       # missed-detection exposure per action (No-Alert, Soft, Hard)
+  w_fa: [0.0, 2.0, 2.0]       # false-alarm exposure per action (v2: Hard 5.0 -> 2.0)
+  mode_cost: [0.0, 0.3, 0.6]  # standing cost of mode (Idle, SoftRefr, HardRefr)
+  repeat_penalty: 2.0         # extra cost for alerting while a refractory is active
+  alpha_md: 1.0               # missed-detection weight (fixed)
+  gamma: 0.95
+  vi_epsilon: 1.0e-6
+  vi_max_iter: 1000
+  soft_arp: 60                # Soft refractory, windows (= 5 min)
+  hard_arp: 360               # Hard refractory, windows (= 30 min)
+  trend_threshold: 0.05       # |delta P| above which trend is Rising / Falling
+  duration_threshold: 3       # run length <= 3 -> Short, > 3 -> Long
+  level_bins: [0.30, 0.60, 0.75]   # adopted uniform bins (upper 0.85 -> 0.75)
+  cost_form: ordinal          # A = d*level, B = d*(3-level)  (use_prep=False)
+
+# ---------------------------------------------------------------------------
+# Per-patient settings that produced the SUBMITTED Table 3 numbers
+# (exactly the FINAL dict of the verified reproduce script).
+#
+#   T_source: 'cache'   -> T_base is the training-stream estimate stored in
+#                          the fold cache (built with bins [0.30,0.60,0.85])
+#             'streams' -> T_base is re-estimated under the patient's bins
+#                          from TRAIN_STREAMS if the cache has them (chb10
+#                          only), otherwise from the fold's FAR stream (the
+#                          notebook's fallback; this is what chb03 used, and
+#                          it leaks the FAR recordings into the transition
+#                          model: with the cached training-stream T, chb03
+#                          gives FAR 0.025 instead of 0.000 -- see README).
+#
+# NOTE: these per-patient bins / T sources are NOT a uniform rule. chb01 and
+# chb20 were recorded with the original bins (0.85) and the cached T; chb03
+# and chb10 with the adopted bins (0.75). Under the uniform 0.75 rule with
+# re-estimated T, chb20 gives FAR 0.333 (not 0.208). See README.
+# ---------------------------------------------------------------------------
+patients:
+  chb01:
+    cache_key: cache_chb01
+    level_bins: [0.30, 0.60, 0.85]
+    T_source: cache
+    alpha_fa: 64.0
+    recorded_far: 0.506
+    recorded_sens: "6/6"
+  chb03:
+    cache_key: cache_chb03
+    level_bins: [0.30, 0.60, 0.75]
+    T_source: streams
+    alpha_fa: 64.0
+    recorded_far: 0.000
+    recorded_sens: "3/5"
+  chb10:
+    cache_key: cache_chb10_with_streams
+    level_bins: [0.30, 0.60, 0.75]
+    T_source: streams
+    alpha_fa: 96.0
+    recorded_far: 0.232
+    recorded_sens: "6/7"
+  chb20:
+    cache_key: cache_chb20
+    level_bins: [0.30, 0.60, 0.85]
+    T_source: cache
+    alpha_fa: 96.0
+    recorded_far: 0.208
+    recorded_sens: "4/4"
+
+# ---------------------------------------------------------------------------
+# Baseline decision layers (same refractory environment)
+# ---------------------------------------------------------------------------
+baselines:
+  thresholds: [0.30, 0.40, 0.50, 0.60, 0.70, 0.85]
+  k_of_n: [[0.50, 3, 5], [0.60, 3, 5], [0.60, 5, 10], [0.70, 5, 10]]
+  two_level: [[0.50, 0.85], [0.60, 0.85]]
+
+# ---------------------------------------------------------------------------
+# Patient screening (classifier-quality gate applied before the MDP)
+# ---------------------------------------------------------------------------
+screening:
+  peak_threshold: 0.60       # a seizure is "caught" if max P_smooth in the preictal window >= this
+  catch_fraction: 0.60       # required fraction of caught seizures
+  auc_threshold: 0.70        # required preictal-vs-FAR AUC of the smoothed stream
+
+data:
+  base_url: "https://physionet.org/files/chbmit/1.0.0"
+  candidate_patients: [chb01, chb02, chb03, chb05, chb07, chb08, chb09, chb10]
+  min_seizures: 3

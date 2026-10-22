@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "Beyond the Threshold: An Adaptive Markov Decision Layer for Graded, Personalized Seizure Alerting"
+type: software
+authors:
+  - family-names: Akhras
+    given-names: Hasan Mohammed
+  - family-names: Nasir
+    given-names: Ali
+year: 2026
+version: 1.0.0
+license: MIT
+notes: "Paper under review. Repository private until acceptance."
+preferred-citation:
+  type: article
+  title: "Beyond the Threshold: An Adaptive Markov Decision Layer for Graded, Personalized Seizure Alerting"
+  authors:
+    - family-names: Akhras
+      given-names: Hasan Mohammed
+    - family-names: Nasir
+      given-names: Ali
+  year: 2026
+  notes: "under review"
