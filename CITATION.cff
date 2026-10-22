@@ -10,7 +10,7 @@ authors:
 year: 2026
 version: 1.0.0
 license: MIT
-notes: "Paper under review. Repository private until acceptance."
+notes: "Paper under review."
 preferred-citation:
   type: article
   title: "Beyond the Threshold: An Adaptive Markov Decision Layer for Graded, Personalized Seizure Alerting"
